@@ -1,0 +1,6 @@
+fastapi==0.141.1
+uvicorn==0.52.1
+python-multipart==0.0.32
+shapely==2.2.0
+pyproj==3.8.0
+httpx==0.28.1
