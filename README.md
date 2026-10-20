@@ -137,7 +137,7 @@ Um componente só é considerado dirigido se **todas** as suas arestas tiverem m
 
 A consulta retangular retorna comprimentos **integrais** dos trechos relacionados, não extensões recortadas. Em SQLite a consulta usa caixas envolventes; em PostGIS, interseção geométrica. Indicadores seguem filtros de pesquisa/material/diâmetro/tipo; visibilidade de camada e destaque são controles visuais e não alteram o escopo estatístico. As análises de topologia usam a **base completa**, com aviso no painel; somente o destaque renderizado respeita o filtro atual.
 
-O **3D é ilustrativo nesta versão**, mesmo que existam Z/cotas no arquivo: dados verticais são preservados para consulta, mas ainda não há configuração validada de datum vertical/MDT para convertê-los em alturas elipsoidais do Cesium. A profundidade simbólica não é cota real. A superfície é o elipsoide WGS84. O carregamento 3D se limita a 5000 feições por vez, informado na tela, e desenha linhas/pontos, não cilindros em escala física, construções ou MDT real. Medição e consulta de área são feitas em 2D. O mapa-base opcional é apenas 2D.
+O **3D é ilustrativo nesta versão**, mesmo que existam Z/cotas no arquivo: dados verticais são preservados para consulta, mas ainda não há configuração validada de datum vertical/MDT para convertê-los em alturas elipsoidais do Cesium. A profundidade simbólica não é cota real. A superfície é o elipsoide WGS84. O carregamento 3D se limita a 5000 feições por vez, informado na tela, e desenha linhas/pontos, não cilindros em escala física, construções ou MDT real. Medição e consulta de área são feitas em 2D. O mapa-base OpenStreetMap pode ser ativado em 2D e 3D. Em 3D, ajuste a opacidade do globo para visualizar melhor ruas ou subsolo.
 
 A aplicação entrega um fluxo local funcional, mas **não implementa integralmente todos os recursos avançados do documento original**. Pendências:
 
@@ -201,3 +201,18 @@ Antes de publicar, implementar identidade/OIDC e autorização por projeto, TLS 
 ### Verificação opcional da interface
 
 Para desenvolvedores: instale `requirements-browser.txt`, execute `python -m playwright install chromium` e depois `python scripts/check_browser.py`. Se já houver Chromium compatível, configure `BROWSER_EXECUTABLE` com seu caminho e dispense o download do navegador. O script inicia um servidor temporário em `127.0.0.1:8001`, usa um banco descartável, testa o formulário de importação e o clique real na rede e salva capturas em `work/browser-checks/`. A porta deve estar livre e `APP_PASSWORD`/`DATABASE_URL` devem estar desconfiguradas para esse teste isolado. Esse teste é opcional e não faz parte da instalação para uso do aplicativo.
+
+## Ativar OpenStreetMap (2D e 3D)
+
+Clique **Mapa-base: desligado** na barra sobre o mapa. O botão passa a **Mapa-base: OSM (2D)** ou **OSM (3D)**. A opção acompanha a alternância entre os modos. Em 3D, use a opacidade do globo para equilibrar a visualização das ruas e da rede subterrânea. A ativação é feita por aba e não exige token ou instalação adicional.
+
+É necessário acesso do **navegador** a `https://tile.openstreetmap.org`. Se as ruas não aparecerem:
+
+1. Confirme que atualizou `backend/main.py` e `frontend/app.js`; reinicie `python run.py` e atualize a página com **Ctrl+F5**. Não substitua sua pasta `data/`.
+2. Abra https://tile.openstreetmap.org/0/0/0.png no navegador para verificar conectividade com o servidor de tiles. Isso verifica acesso ao domínio, mas não substitui a verificação de cabeçalhos/CORS das requisições do mapa.
+3. Se houver bloqueio de rede, antivírus ou extensão, verifique a liberação desse domínio com o administrador. O console do navegador (F12 → Rede) permite identificar 403, 429 ou falhas de conexão.
+4. Se usar proxy reverso, não sobrescreva `Referrer-Policy` com `no-referrer` ou `same-origin`: OSM requer Referer válido para pedidos web. A interface agora usa `strict-origin-when-cross-origin`, enviando somente a origem para destinos externos. A API mantém `no-referrer`. Não desabilite CORS ou a verificação de certificados para tentar corrigir conectividade.
+
+Os tiles são pedidos diretamente ao OSM, com atribuição, cache normal do navegador e sem pré-carregamento em massa. A disponibilidade depende do serviço e da rede do usuário. Esta mudança não inclui um servidor offline de mapas ou download de cidades inteiras. O mapa-base continua desligado na abertura para evitar consultas externas antes da ativação explícita.
+
+Teste opcional e reproduzível desta integração: com `requirements-browser.txt` e Chromium instalados, execute `python scripts/check_basemap.py`. Ele usa tiles PNG sintéticos interceptados no navegador, sem acessar o OSM real, e verifica Referer, atribuição, ativação/desativação em 2D/3D e tratamento de HTTP 403. A porta 8003 deve estar livre.
