@@ -34,7 +34,8 @@ async def local_security(request:Request,call_next):
             return JSONResponse({'detail':'Origem não permitida.'},403)
     response=await call_next(request)
     response.headers['X-Content-Type-Options']='nosniff'
-    response.headers['Referrer-Policy']='no-referrer'
+    # OSM requer Referer. Requisições externas recebem só a origem, sem caminho/atributos.
+    response.headers['Referrer-Policy']='no-referrer' if request.url.path.startswith('/api/') else 'strict-origin-when-cross-origin'
     if request.url.path.startswith('/api/'): response.headers['Cache-Control']='no-store'
     return response
 
