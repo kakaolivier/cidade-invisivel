@@ -27,3 +27,11 @@ Houve um aviso de depreciação de Starlette sobre seu adaptador TestClient com 
 Não houve acesso à rede real do usuário, ao ArcGIS Enterprise privado, a MDT ou a referência vertical validada. Não foram feitos ensaios de carga para dezenas de milhares de segmentos nem auditoria de segurança para produção. O 3D validado é explicitamente ilustrativo. A simulação é topológica, não hidráulica. A versão não cobre integralmente os recursos avançados do documento original; veja as pendências no README.
 
 A verificação visual foi realizada em desktop (1512 × 982). Há regras de adaptação para telas menores, mas tablets e navegadores móveis não foram validados em dispositivos reais.
+
+## Atualização do mapa-base OpenStreetMap
+
+- Corrigido Referrer-Policy da interface para strict-origin-when-cross-origin; a API mantém no-referrer.
+- OSM habilitado no botão de mapa-base em 2D e 3D, com atribuição e opacidade 2D de 0,85.
+- Acrescentada mensagem específica para falhas de tiles, sem interromper a rede carregada.
+- Os 14 testes da API passaram novamente (1,07 s).
+- scripts/check_basemap.py passou em Chromium: ativação explícita, tiles em 2D, Referer apenas com a origem, atribuição visível, provedor Cesium 3D, alternância e desativação, e aviso de HTTP 403. Zero erros JavaScript. Os tiles foram simulados (41 requisições interceptadas); não foi validada disponibilidade do serviço OSM na rede do usuário.
