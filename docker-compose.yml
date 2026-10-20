@@ -1,0 +1,18 @@
+services:
+  database:
+    image: postgis/postgis:17-3.5
+    environment:
+      POSTGRES_DB: cidade
+      POSTGRES_USER: cidade
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no ambiente ou .env}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      - cidade_database:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U cidade -d cidade']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  cidade_database:
