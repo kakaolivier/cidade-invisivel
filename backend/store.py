@@ -83,3 +83,48 @@ CREATE VIRTUAL TABLE IF NOT EXISTS feature_bounds USING rtree(id,minx,maxx,miny,
             else:
                 sql+=' AND b.maxx>=? AND b.minx<=? AND b.maxy>=? AND b.miny<=?'; args += [x,xx,y,yy]
         return [json.loads(r['body']) for r in self.rows(sql,args)]
+
+    def features_by_ids(self,project,ids):
+        if not ids: return []
+        result=[]
+        for offset in range(0,len(ids),400):
+            chunk=ids[offset:offset+400]
+            query='SELECT f.body FROM features f JOIN layers l ON l.id=f.layer WHERE l.project=? AND f.id IN ('+','.join('?' for _ in chunk)+')'
+            result.extend(json.loads(r['body']) for r in self.rows(query,[project,*chunk]))
+        return result
+
+    def routing_features(self,project):
+        """Projeção leve: não transfere os atributos originais de toda a base."""
+        if self.pg:
+            query="""SELECT f.id,f.layer,l.kind,l.field_map,
+                f.body::jsonb->'geometry' AS geometry,
+                f.body::jsonb#>'{properties,standard}' AS standard,
+                f.body::jsonb#>>'{properties,original,GEOCODIGO}' AS pv_code,
+                f.body::jsonb#>>'{properties,original,PV_INICIO}' AS start_code,
+                f.body::jsonb#>>'{properties,original,PV_FINAL}' AS end_code
+                FROM features f JOIN layers l ON l.id=f.layer WHERE l.project=?"""
+        else:
+            query="""SELECT f.id,f.layer,l.kind,l.field_map,
+                json_extract(f.body,'$.geometry') AS geometry,
+                json_extract(f.body,'$.properties.standard') AS standard,
+                json_extract(f.body,'$.properties.original.GEOCODIGO') AS pv_code,
+                json_extract(f.body,'$.properties.original.PV_INICIO') AS start_code,
+                json_extract(f.body,'$.properties.original.PV_FINAL') AS end_code
+                FROM features f JOIN layers l ON l.id=f.layer WHERE l.project=?"""
+        result=[]
+        for row in self.rows(query,(project,)):
+            geometry=row['geometry'] if isinstance(row['geometry'],dict) else json.loads(row['geometry'])
+            standard=dict(row['standard']) if isinstance(row['standard'],dict) else json.loads(row['standard'])
+            field_map=json.loads(row['field_map']);known=True
+            if geometry['type']=='Point' and row['pv_code']:
+                standard['node_id']=str(row['pv_code'])
+            if geometry['type']=='LineString':
+                if not standard.get('start_node') and row['start_code']: standard['start_node']=str(row['start_code'])
+                if not standard.get('end_node') and row['end_code']: standard['end_node']=str(row['end_code'])
+                # Campos de início/fim geométrico de importações antigas não
+                # certificam direção hidráulica, mesmo mapeados como from/to.
+                if str(field_map.get('from_node','')).casefold() in ('pv_inicio','pv_inicial') or str(field_map.get('to_node','')).casefold()=='pv_final':
+                    known=False
+            result.append({'type':'Feature','id':row['id'],'layer':row['layer'],'layer_kind':row['kind'],
+                'geometry':geometry,'properties':{'standard':standard,'original':None},'direction_known':known,'_compact':True})
+        return result
