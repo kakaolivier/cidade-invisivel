@@ -35,3 +35,9 @@ A verificação visual foi realizada em desktop (1512 × 982). Há regras de ada
 - Acrescentada mensagem específica para falhas de tiles, sem interromper a rede carregada.
 - Os 14 testes da API passaram novamente (1,07 s).
 - scripts/check_basemap.py passou em Chromium: ativação explícita, tiles em 2D, Referer apenas com a origem, atribuição visível, provedor Cesium 3D, alternância e desativação, e aviso de HTTP 403. Zero erros JavaScript. Os tiles foram simulados (41 requisições interceptadas); não foi validada disponibilidade do serviço OSM na rede do usuário.
+
+## Correção do escopo das ambiguidades
+
+A consulta de percurso agora retorna alertas do componente conectado analisado em `ambiguities` e o total de alertas do projeto em `global_ambiguity_count`. A interface diferencia os dois contadores. Alertas de conexões recusadas são incluídos para os componentes dos nós candidatos, além do trecho que originou o alerta. O relatório geral de topologia continua considerando a base inteira.
+
+16 testes automatizados passaram (1,28 s), incluindo dois testes de regressão com geometrias sintéticas para ambiguidades em componentes distintos. Nenhum arquivo geográfico do usuário integra o código ou os testes publicados.
