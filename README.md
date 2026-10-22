@@ -53,7 +53,7 @@ O download usa só Python, cerca de 21 MB descompactados. Depois do primeiro dow
 - Geometrias originais e todos os atributos preservados no banco, além da geometria WGS84 usada pelo mapa. Não são sobrescritos por simplificação cartográfica.
 - Cesium local, navegação, inclinação/rotação, seleção, globo translúcido e profundidade simbólica configurável. Espessura visual em pixels relacionada ao diâmetro, sem afirmar escala volumétrica real.
 - Conectividade de linhas simples e PVs, tolerância métrica configurável, extremidades de grau 1 e sinalização de ambiguidades.
-- Percurso animado, parar/reiniciar e velocidade. Em ramificações, a animação apresenta os trechos em ordem de exploração do grafo e pode saltar de um ramo para outro; não é uma partícula hidráulica contínua.
+- Percurso animado contínuo, com origem/destino por seleção ou pesquisa de PV, destino automático opcional, enquadramento, progresso, velocidade e parar/reiniciar. A rota é calculada no grafo por menor extensão; sem direção comprovada, é explicitamente ilustrativa. Destacar o componente inteiro é uma ferramenta separada.
 - Interrupção hipotética reversível: relações a montante quando o componente é dirigido; conjunto relacionado quando não há direção confiável.
 - Indicadores reais e filtrados: extensão geodésica, trechos, PVs, elevatórias, ETEs, materiais, diâmetros e incompletude.
 - Exportação GeoJSON do conjunto filtrado. Inclui atributos preservados e `original_geometry`; a geometria principal está em WGS84.
@@ -69,11 +69,11 @@ O download usa só Python, cerca de 21 MB descompactados. Depois do primeiro dow
 4. Deixe o SRC vazio para usar metadados do arquivo. GeoJSON sem `crs` segue **RFC 7946 / EPSG:4326**. Se seu arquivo tiver coordenadas projetadas, informe o SRC correto; o sistema não assume 31982. Shapefile sem `.prj` exige seleção de SRC.
 5. Clique **Ler arquivo e revisar campos**. Confira a amostra, o SRC e as sugestões.
 6. Escolha a categoria correta da camada (PV, coletora etc.), nome e referência vertical. Campos ausentes podem ficar em **Não informado**.
-7. **PV montante/inicial e PV jusante/final devem ser mapeados apenas quando forem confiáveis**, refletirem a direção da rede e corresponderem às extremidades inicial/final da geometria. Se os IDs forem somente cadastros sem direção ou a geometria estiver invertida, deixe sem mapear até corrigir/verificar a origem. O sentido da digitalização sozinho nunca estabelece fluxo.
+7. **PV inicial geométrico e PV final geométrico** identificam conexões, sem declarar sentido hidráulico. Mapeie **montante e jusante declarados** somente quando a direção for confiável e corresponder às extremidades da geometria. O sentido da digitalização sozinho nunca estabelece fluxo. Importações antigas com `PV_INICIO`/`PV_FINAL` mapeados como montante/jusante são tratadas como conectividade geométrica pela ferramenta de percurso.
 8. Confirme a importação. O projeto real aparece no seletor superior e o mapa enquadra sua extensão.
 9. Repita para PVs e outras camadas no mesmo projeto. Identificadores de PV e de extremidades devem usar exatamente a mesma convenção textual.
 
-Limites locais: 30 MB por upload (ajustável em `MAX_UPLOAD_MB`), 200 MB após descompactação ZIP, 1000 membros por ZIP e 100.000 feições por importação. A validação é atômica: uma geometria inválida rejeita a camada inteira, sem descarte silencioso. As prévias expiram após uma hora na limpeza de novas importações e são limpas na reinicialização. Não execute várias instâncias compartilhando a pasta temporária.
+Limites locais: 200 MB por upload (`MAX_UPLOAD_MB`), 500 MB após descompactação ZIP (`MAX_ZIP_MB`), 5000 membros por ZIP (`MAX_ZIP_FILES`) e 500.000 feições por importação (`MAX_FEATURES`). Todos são configuráveis por variáveis de ambiente. A validação é atômica: uma geometria inválida rejeita a camada inteira, sem descarte silencioso. As prévias expiram após uma hora na limpeza de novas importações e são limpas na reinicialização. Não execute várias instâncias compartilhando a pasta temporária.
 
 ## PostGIS opcional
 
@@ -137,12 +137,12 @@ Um componente só é considerado dirigido se **todas** as suas arestas tiverem m
 
 A consulta retangular retorna comprimentos **integrais** dos trechos relacionados, não extensões recortadas. Em SQLite a consulta usa caixas envolventes; em PostGIS, interseção geométrica. Indicadores seguem filtros de pesquisa/material/diâmetro/tipo; visibilidade de camada e destaque são controles visuais e não alteram o escopo estatístico. As análises de topologia usam a **base completa**, com aviso no painel; somente o destaque renderizado respeita o filtro atual.
 
-O **3D é ilustrativo nesta versão**, mesmo que existam Z/cotas no arquivo: dados verticais são preservados para consulta, mas ainda não há configuração validada de datum vertical/MDT para convertê-los em alturas elipsoidais do Cesium. A profundidade simbólica não é cota real. A superfície é o elipsoide WGS84. O carregamento 3D se limita a 5000 feições por vez, informado na tela, e desenha linhas/pontos, não cilindros em escala física, construções ou MDT real. Medição e consulta de área são feitas em 2D. O mapa-base OpenStreetMap pode ser ativado em 2D e 3D. Em 3D, ajuste a opacidade do globo para visualizar melhor ruas ou subsolo.
+O **3D é ilustrativo nesta versão**, mesmo que existam Z/cotas no arquivo: dados verticais são preservados para consulta, mas ainda não há configuração validada de datum vertical/MDT para convertê-los em alturas elipsoidais do Cesium. A profundidade simbólica não é cota real. A superfície é o elipsoide WGS84. O carregamento 3D se limita a 5000 feições por vez, priorizando os trechos do percurso e o elemento selecionado; isso é informado na tela, e desenha linhas/pontos, não cilindros em escala física, construções ou MDT real. Medição e consulta de área são feitas em 2D. O mapa-base OpenStreetMap pode ser ativado em 2D e 3D. Em 3D, ajuste a opacidade do globo para visualizar melhor ruas ou subsolo.
 
 A aplicação entrega um fluxo local funcional, mas **não implementa integralmente todos os recursos avançados do documento original**. Pendências:
 
 - Altimetria técnica/MDT, transformação de datum vertical e integração hidráulica validada.
-- Tiles vetoriais, simplificação por escala, paginação automática por viewport, cache de grafos e processamento assíncrono de grandes importações. O endpoint `features?bbox=` já consulta os índices espaciais; o frontend atual carrega a base filtrada inteira.
+- Tiles vetoriais, simplificação por escala, paginação automática por viewport, cache distribuído e processamento assíncrono de grandes importações. O endpoint `features?bbox=` já consulta os índices espaciais; o frontend atual carrega as geometrias e atributos padronizados da base filtrada; os atributos originais são consultados ao selecionar um elemento.
 - Ferramenta de corrigir/normalizar topologia, edições, exclusão de camadas, gerenciamento avançado de projetos e relatórios técnicos.
 - Autenticação multiusuário, permissões por projeto, auditoria, migrações formais, filas e limitação de requisições para produção.
 - Validação com sua rede real e seu ArcGIS Enterprise, que não foram fornecidos.
@@ -156,7 +156,9 @@ cidade-invisivel/
     main.py                   # API, segurança local, importação em duas fases
     geo.py                    # formatos, SRC, mapeamento e atributos
     store.py                  # SQLite/RTree e PostGIS/GiST
-    topology.py               # conexões, percurso e interrupção
+    topology.py               # conexões, rota contínua e interrupção
+    routing.py                # cache do grafo, pesquisa de PVs e respostas de percurso
+    config.py                 # limites por variáveis de ambiente
     arcgis.py                 # conector autorizado e paginação
     demo.py                   # rede sintética isolada
   frontend/
@@ -216,3 +218,35 @@ Clique **Mapa-base: desligado** na barra sobre o mapa. O botão passa a **Mapa-b
 Os tiles são pedidos diretamente ao OSM, com atribuição, cache normal do navegador e sem pré-carregamento em massa. A disponibilidade depende do serviço e da rede do usuário. Esta mudança não inclui um servidor offline de mapas ou download de cidades inteiras. O mapa-base continua desligado na abertura para evitar consultas externas antes da ativação explícita.
 
 Teste opcional e reproduzível desta integração: com `requirements-browser.txt` e Chromium instalados, execute `python scripts/check_basemap.py`. Ele usa tiles PNG sintéticos interceptados no navegador, sem acessar o OSM real, e verifica Referer, atribuição, ativação/desativação em 2D/3D e tratamento de HTTP 403. A porta 8003 deve estar livre.
+
+## Gerar e visualizar um percurso
+
+1. Abra seu projeto real e selecione um PV no mapa.
+2. Clique **Gerar percurso animado** no painel direito, ou **Percurso** sobre o mapa. Sem destino informado, a aplicação escolhe um destino conectado para exemplificar o percurso. A origem e o destino usados são mostrados no resultado.
+3. Para um destino específico, marque o primeiro PV com **Usar como origem**, selecione o segundo e clique **Usar como destino**. Também é possível pesquisar o código nos campos Origem e Destino e clicar no resultado.
+4. O mapa enquadra a rota, destaca os trechos em laranja e exibe uma partícula branca e o progresso. **Reiniciar** volta ao início; **Parar animação** interrompe o movimento. A velocidade altera somente a apresentação, sem representar velocidade hidráulica.
+5. A mesma rota é mantida em 2D e 3D. No 3D, ela tem prioridade sobre o limite de objetos da visualização. A profundidade continua ilustrativa.
+
+**Destacar conexões** mostra o conjunto conectado inteiro; não inicia uma animação sobre todas as suas ramificações. O percurso animado é uma sequência de até 500 trechos, calculada por menor extensão entre a origem e o destino. Um destino explícito sem conexão gera uma mensagem clara. A escolha automática considera nós alcançáveis dentro desse limite. Isso não escolhe uma ETE, uma saída sanitária nem um destino hidráulico validado.
+
+Sem direção comprovada, aparece permanentemente **PERCURSO ILUSTRATIVO · SENTIDO HIDRÁULICO DESCONHECIDO**. Campos `PV_INICIO` e `PV_FINAL` servem à conectividade; não certificam montante/jusante. O servidor reconhece esses campos e `GEOCODIGO` nos atributos originais já importados para construir o grafo, sem alterar os registros persistidos. PVs sem conexão conhecida precisam ser revisados ou substituídos na seleção; a tolerância não é aumentada automaticamente.
+
+A primeira consulta prepara o grafo em memória. As seguintes reutilizam o cache; importar uma camada nova invalida o cache. A seleção e o destaque alteram o estado visual das feições, evitando reenviar todas as geometrias ao mapa. Os atributos originais continuam disponíveis em Atributos do elemento.
+
+### Atualizar uma instalação existente
+
+Baixe o código atualizado e mantenha suas pastas `data/`, `.venv/`, `frontend/vendor/` e configurações locais. A atualização não exige reimportar a base nem recriar o banco. Inclua os novos módulos `backend/config.py` e `backend/routing.py`, além dos arquivos atualizados de backend e frontend. Reinicie o servidor e use **Ctrl+F5** no navegador. Os limites que antes precisavam ser editados no código agora estão no ambiente; por exemplo, no PowerShell:
+
+```powershell
+$env:MAX_UPLOAD_MB="200"
+$env:MAX_FEATURES="500000"
+$env:MAX_ZIP_MB="500"
+$env:MAX_ZIP_FILES="5000"
+python run.py
+```
+
+### Desenho de bases extensas
+
+Acima de 20.000 registros, o mapa 2D desenha no máximo cerca de 10.000 feições de contexto por enquadramento, agrupando geometrias idênticas somente na apresentação. PVs aparecem ao aproximar (zoom 15) ou pela pesquisa/seleção; origem e destino do percurso ficam destacados. A indicação sobre o mapa informa que há detalhe cartográfico reduzido. O cálculo de rotas, as consultas e os indicadores usam a base completa, sem excluir registros ou alterar os arquivos de origem.
+
+O percurso animado possui uma camada própria e é desenhado integralmente dentro do limite de 500 trechos. Em 3D, o contexto durante um percurso fica limitado a 1.000 feições, priorizando todos os seus trechos e os elementos selecionados; sem percurso, o limite de contexto é 5.000. Essa redução é visual e busca manter a animação responsiva em máquinas limitadas.
