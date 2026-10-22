@@ -3,6 +3,7 @@ import json
 import os
 import re
 import httpx
+from .config import MAX_FEATURES
 
 def sources():
     return json.loads(os.getenv('ARCGIS_SOURCES','{}'))
@@ -27,7 +28,7 @@ def fetch(alias):
         meta=call('',{})
         ids=call('/query',{'where':'1=1','returnIdsOnly':'true'}).get('objectIds')
         if ids is None: raise ValueError('Serviço não retornou IDs para paginação segura.')
-        if len(ids)>100000: raise ValueError('Fonte excede 100.000 feições; divida a importação.')
+        if len(ids)>MAX_FEATURES: raise ValueError(f'Fonte excede {MAX_FEATURES:,} feições (MAX_FEATURES); divida a importação.')
         batch=min(int(meta.get('maxRecordCount',1000)),1000); features=[]; seen=set()
         for start in range(0,len(ids),batch):
             chunk=ids[start:start+batch]
