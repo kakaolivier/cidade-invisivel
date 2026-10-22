@@ -8,14 +8,16 @@ from pathlib import Path
 from pyproj import CRS, Transformer, Geod
 from shapely.geometry import shape, mapping
 from shapely import transform
+from .config import MAX_FEATURES, MAX_ZIP_MB, MAX_ZIP_FILES
 
 FIELDS = {
- 'id':['id','objectid','fid','codigo'], 'diameter':['diametro','diameter','dn'],
+ 'id':['id','geocodigo','objectid','fid','codigo'], 'diameter':['diametro','diameter','dn'],
  'material':['material','mat'], 'depth':['profundidade','depth'],
  'up_elevation':['cota_montante','up_elevation'], 'down_elevation':['cota_jusante','down_elevation'],
  'surface_elevation':['cota_tampa','surface_elevation'], 'bottom_elevation':['cota_fundo','bottom_elevation'],
  'kind':['tipo','kind','tipo_rede'], 'status':['situacao','status'],
- 'from_node':['pv_inicial','from_node','no_montante'], 'to_node':['pv_final','to_node','no_jusante']}
+ 'start_node':['pv_inicio','pv_inicial','start_node','no_inicial'], 'end_node':['pv_final','end_node','no_final'],
+ 'from_node':['from_node','no_montante','pv_montante'], 'to_node':['to_node','no_jusante','pv_jusante']}
 GEOD = Geod(ellps='WGS84')
 
 def suggestions(fields):
@@ -42,8 +44,8 @@ def read_file(data, filename, source_crs=None, layer=None):
         base = Path(tmp)
         if suffix == '.zip':
             with zipfile.ZipFile(io.BytesIO(data)) as z:
-                if len(z.infolist()) > 1000 or sum(x.file_size for x in z.infolist()) > 200*1024*1024:
-                    raise ValueError('ZIP excede o limite descompactado (200 MB/1000 arquivos).')
+                if len(z.infolist()) > MAX_ZIP_FILES or sum(x.file_size for x in z.infolist()) > MAX_ZIP_MB*1024*1024:
+                    raise ValueError(f'ZIP excede o limite descompactado ({MAX_ZIP_MB} MB/{MAX_ZIP_FILES} arquivos).')
                 for info in z.infolist():
                     path = (base/info.filename).resolve()
                     if not path.is_relative_to(base.resolve()):
@@ -60,7 +62,11 @@ def read_file(data, filename, source_crs=None, layer=None):
             selected = None
         else:
             path = base/'upload.gpkg'; path.write_bytes(data)
-            layers = fiona.listlayers(path)
+            with fiona.Env():
+                import sqlite3
+                with sqlite3.connect(f'file:{path}?mode=ro',uri=True) as gpkg:
+                    layers=[r[0] for r in gpkg.execute('SELECT table_name FROM gpkg_geometry_columns')]
+            if not layers: raise ValueError('GeoPackage sem camadas geográficas.')
             if len(layers)>1 and not layer:
                 raise ValueError('Informe layer. Camadas GeoPackage: '+', '.join(layers))
             selected = layer or layers[0]
@@ -73,7 +79,7 @@ def read_file(data, filename, source_crs=None, layer=None):
             return features, CRS(crs).to_string(), []
 
 def normalize(features, source_crs, field_map, layer_kind):
-    if len(features)>100000: raise ValueError('Limite de 100.000 feições por importação.')
+    if len(features)>MAX_FEATURES: raise ValueError(f'Limite de {MAX_FEATURES:,} feições por importação (MAX_FEATURES).')
     transformer = Transformer.from_crs(source_crs,4326,always_xy=True)
     result=[]
     for index, feature in enumerate(features):
