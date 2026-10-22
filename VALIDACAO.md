@@ -41,3 +41,16 @@ A verificação visual foi realizada em desktop (1512 × 982). Há regras de ada
 A consulta de percurso agora retorna alertas do componente conectado analisado em `ambiguities` e o total de alertas do projeto em `global_ambiguity_count`. A interface diferencia os dois contadores. Alertas de conexões recusadas são incluídos para os componentes dos nós candidatos, além do trecho que originou o alerta. O relatório geral de topologia continua considerando a base inteira.
 
 16 testes automatizados passaram (1,28 s), incluindo dois testes de regressão com geometrias sintéticas para ambiguidades em componentes distintos. Nenhum arquivo geográfico do usuário integra o código ou os testes publicados.
+
+## Percurso contínuo e bases extensas
+
+- Nova API de percurso entre elementos, com destino explícito ou automático, menor extensão no grafo e limite de 500 trechos. Campos de início/fim geométrico são separados de direção declarada.
+- O componente inteiro permanece disponível na ferramenta Destacar conexões; a animação usa uma sequência contínua de trechos.
+- Pesquisa de PVs, enquadramento automático, progresso visível, velocidade de apresentação, parar/reiniciar e continuidade entre 2D/3D.
+- Índice de feições no navegador, destaque incremental, geometrias de contexto limitadas ao enquadramento e prioridade da rota no 3D. Atributos originais são carregados sob demanda.
+- Cache de topologia limitado a um projeto/tolerância, invalidado por novas camadas; consultas leves em SQLite e PostGIS.
+- Limites de upload, ZIP e quantidade de feições agora configuráveis no ambiente. GeoPackages ignoram tabelas não geográficas na escolha automática de camada.
+- **22 testes automatizados passaram** (1,24 s), incluindo rotas dirigidas/não dirigidas, orientação dos segmentos, destinos desconectados, importações antigas com códigos geométricos, preservação dos atributos, cache e registros paralelos.
+- O teste de navegador confirmou movimento da partícula, seleção, importação, percurso, cenário e 3D com dados sintéticos, sem erros JavaScript ou requisições externas.
+- PostGIS temporário: consultas leves, pesquisa, detalhe e percurso dirigido passaram.
+- A animação também foi verificada em ambiente privado com os dados fornecidos na conversa, com seleção de destino, movimento em 2D/3D e parar/reiniciar. Os dados geográficos, imagens e resultados detalhados desse teste privado não integram o repositório.
