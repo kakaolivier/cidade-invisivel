@@ -1,5 +1,6 @@
 """Grafo local projetado. Direção somente por IDs montante/jusante declarados."""
 import math
+import heapq
 from collections import defaultdict, deque
 from pyproj import CRS, Transformer
 from shapely.geometry import shape
@@ -9,6 +10,7 @@ class Topology:
         if not 0<=tolerance<=20: raise ValueError('Tolerância deve estar entre 0 e 20 metros.')
         self.tolerance=tolerance; self.edges={}; self.inc=defaultdict(list); self.points={}; self.ambiguities=[]
         self._ambiguity_context=[]
+        self.weights={}; self.node_positions={}
         lines=[f for f in features if f['geometry']['type']=='LineString']
         coords=[f['geometry']['coordinates'][0] for f in lines]
         lon=sum(c[0] for c in coords)/len(coords) if coords else 0
@@ -39,18 +41,25 @@ class Topology:
         # Nós explícitos não são fundidos com inferidos: evita presumir relação entre IDs e geometria.
         for f in lines:
             s=f['properties']['standard']; coords=f['geometry']['coordinates']
-            a=node(coords[0],s.get('from_node')); b=node(coords[-1],s.get('to_node'))
-            directed=bool(s.get('from_node') is not None and s.get('to_node') is not None and str(s.get('from_node')) and str(s.get('to_node')))
+            a=node(coords[0],s.get('start_node') or s.get('from_node')); b=node(coords[-1],s.get('end_node') or s.get('to_node'))
+            self.node_positions.setdefault(a,coords[0]); self.node_positions.setdefault(b,coords[-1])
+            length=s.get('length_m')
+            if not isinstance(length,(int,float)) or not math.isfinite(length) or length<=0:
+                from .geo import GEOD
+                length=abs(GEOD.line_length([c[0] for c in coords],[c[1] for c in coords]))
+            self.weights[f['id']]=max(float(length),1e-6)
+            directed=bool(s.get('from_node') is not None and s.get('to_node') is not None and str(s.get('from_node')) and str(s.get('to_node')) and f.get('direction_known',True))
             self.edges[f['id']]=(a,b,directed); self.inc[a].append(f['id']); self.inc[b].append(f['id'])
         for f in features:
             if f['geometry']['type']=='Point':
-                s=f['properties']['standard']; key='id:'+str(s.get('id'))
+                s=f['properties']['standard']; key='id:'+str(s.get('node_id') or s.get('id'))
                 if key in self.inc: self.points[f['id']]=[key]
                 else:
                     x,y=tx.transform(*f['geometry']['coordinates'][:2]); candidates=[]
-                    for key2, lst in cells.items():
-                        if abs(key2[0]-math.floor(x/max(tolerance,1e-6)))<=1 and abs(key2[1]-math.floor(y/max(tolerance,1e-6)))<=1:
-                            candidates += [k for k,px,py in lst if math.hypot(px-x,py-y)<=tolerance]
+                    cx=math.floor(x/max(tolerance,1e-6));cy=math.floor(y/max(tolerance,1e-6))
+                    for dx in (-1,0,1):
+                        for dy in (-1,0,1):
+                            candidates += [k for k,px,py in cells.get((cx+dx,cy+dy),[]) if math.hypot(px-x,py-y)<=tolerance]
                     self.points[f['id']]=candidates
         self.unsupported=sum(f['geometry']['type']=='MultiLineString' for f in features)
     def trace(self,selected,scenario=False):
@@ -88,6 +97,68 @@ class Topology:
                 'message':('Cenário: trechos a montante potencialmente relacionados.' if scenario else 'Percurso dirigido pelas declarações de montante/jusante.') if directed else 'Conectividade não dirigida; sentido hidráulico desconhecido. Conjunto relacionado, sem previsão hidráulica.',
                 'ambiguities':component_ambiguities,'global_ambiguity_count':len(self.ambiguities),
                 'ambiguities_scope':'connected_component','unsupported_multilines':self.unsupported}
+    def route(self,start,end=None,max_steps=500):
+        """Menor percurso métrico; destino automático ilustrativo quando omitido."""
+        def nodes(fid):
+            if fid in self.edges: return [self.edges[fid][0]]
+            if fid in self.points:
+                found=self.points[fid]
+                if not found: raise ValueError('PV sem conexão conhecida na tolerância atual. Escolha outro PV e confira o identificador GEOCODIGO.')
+                if len(found)>1: raise ValueError('PV associado a múltiplos nós; selecione um trecho ou outro PV sem ambiguidade.')
+                return found
+            raise ValueError('Elemento não encontrado na rede. Selecione uma linha simples ou um PV.')
+        if start==end: raise ValueError('Escolha origem e destino diferentes ou deixe o destino automático.')
+        origin=nodes(start)[0]
+        targets=set(nodes(end)) if end else set()
+        if end in self.edges: targets=set(self.edges[end][:2])
+        component=set(); visited={origin}; queue=deque([origin])
+        while queue:
+            n=queue.popleft()
+            for eid in self.inc[n]:
+                component.add(eid)
+                for nxt in self.edges[eid][:2]:
+                    if nxt not in visited: visited.add(nxt);queue.append(nxt)
+        if not component: raise ValueError('Não há tubulações conectadas a este elemento.')
+        directed=all(self.edges[e][2] for e in component)
+        distances={origin:0.0};previous={};hops={origin:0};heap=[(0.0,origin)]
+        while heap:
+            distance,n=heapq.heappop(heap)
+            if distance!=distances[n]: continue
+            if targets and n in targets: break
+            for eid in self.inc[n]:
+                a,b,_=self.edges[eid]
+                if directed and n!=a: continue
+                nxt=b if n==a else a
+                if nxt==n: continue
+                candidate=distance+self.weights[eid]
+                if candidate<distances.get(nxt,math.inf):
+                    distances[nxt]=candidate;previous[nxt]=(n,eid,n==b);hops[nxt]=hops[n]+1
+                    heapq.heappush(heap,(candidate,nxt))
+        if targets:
+            reachable=[n for n in targets if n in distances and (n!=origin or len(targets)==1)]
+            if not reachable: raise ValueError('Não existe percurso conectado entre os elementos com a topologia e direção conhecidas. Confira os PVs e a tolerância.')
+            destination=min(reachable,key=distances.get)
+        else:
+            candidates=[n for n in distances if n!=origin and hops[n]<=max_steps]
+            if not candidates: raise ValueError('Nenhum percurso disponível a partir desta origem. Experimente outro PV.')
+            known=[n for n in candidates if n.startswith('id:')]
+            destination=max(known or candidates,key=lambda n:(distances[n],n))
+        steps=[];current=destination
+        while current!=origin:
+            parent,eid,reverse=previous[current]
+            steps.append({'id':eid,'reverse':reverse});current=parent
+        steps.reverse()
+        if not steps: raise ValueError('Origem e destino correspondem ao mesmo nó. Escolha outro destino.')
+        if len(steps)>max_steps: raise ValueError(f'O percurso tem {len(steps)} trechos; escolha um destino mais próximo (máximo {max_steps}).')
+        ambiguities=[message for message,(eid,candidates) in zip(self.ambiguities,self._ambiguity_context)
+            if eid in component or any(edge in component for node in candidates for edge in self.inc[node])]
+        return {'type':'route','ids':[s['id'] for s in steps],'steps':steps,'directed':directed,'illustrative':not directed,
+                'length_m':sum(self.weights[s['id']] for s in steps),'automatic_destination':end is None,
+                'start_node':origin,'end_node':destination,'start_coordinate':self.node_positions[origin],
+                'end_coordinate':self.node_positions[destination],'component_count':len(component),
+                'ambiguities':ambiguities,'global_ambiguity_count':len(self.ambiguities),'tolerance_m':self.tolerance,
+                'message':'Percurso pela direção declarada no cadastro; sem previsão hidráulica.' if directed else 'PERCURSO ILUSTRATIVO DE CONECTIVIDADE — sentido hidráulico desconhecido.'}
+
     def report(self):
         ends=[{'node':n,'feature':e[0]} for n,e in self.inc.items() if len(e)==1]
         return {'apparent_endpoints':ends,'count':len(ends),'ambiguities':self.ambiguities,'tolerance_m':self.tolerance,'crs':self.crs,'unsupported_multilines':self.unsupported,
