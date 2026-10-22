@@ -37,6 +37,10 @@ try:
         page.wait_for_function("document.getElementById('analysis').textContent.includes('3 trechos')")
         page.wait_for_timeout(200)
         assert page.evaluate("map.getSource('particle')._data.type")=='Feature'
+        before=page.evaluate("map.getSource('particle')._data.geometry.coordinates")
+        page.wait_for_timeout(350)
+        assert page.evaluate("map.getSource('particle')._data.geometry.coordinates")!=before
+        assert page.locator('#animationInfo').is_visible()
         page.locator('#stopBtn').click()
         page.locator('#scenarioBtn').click()
         page.wait_for_function("document.getElementById('analysis').textContent.includes('montante')")
@@ -56,7 +60,8 @@ try:
         page.locator('#commitBtn').click()
         page.wait_for_function("document.getElementById('status').textContent.includes('1 elementos')")
         assert page.locator('#banner').inner_text().startswith('PROJETO REAL')
-        assert page.evaluate("state.data.features[0].properties.original.extra")=='original'
+        await_detail=page.evaluate("select(state.data.features[0].id)")
+        assert page.evaluate("feature(state.selected).properties.original.extra")=='original'
         real=page.evaluate('state.project')
         page.reload(wait_until='networkidle')
         page.wait_for_function("document.getElementById('status').textContent.includes('13 elementos')")
