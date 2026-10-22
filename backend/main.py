@@ -13,11 +13,14 @@ from .geo import read_file, normalize, suggestions, FIELDS
 from .topology import Topology
 from .demo import seed
 from .arcgis import sources, fetch
+from .config import MAX_FEATURES, MAX_UPLOAD_MB
+from .routing import RoutingService
 
 ROOT=Path(__file__).resolve().parent.parent
-MAX_BYTES=int(os.getenv('MAX_UPLOAD_MB','30'))*1024*1024
+MAX_BYTES=MAX_UPLOAD_MB*1024*1024
 KINDS={'collector','interceptor','outfall','manhole','pump','treatment','basin','district','streets','terrain'}
 store=Store(); seed(store)
+routing=RoutingService(store)
 app=FastAPI(title='Cidade Invisível',version='1.0.0')
 # Dados temporários ficam no disco privado, não em URLs públicas.
 STAGING=Path(os.getenv('DATA_DIR','data'))/'staging'; STAGING.mkdir(parents=True,exist_ok=True)
@@ -52,6 +55,8 @@ class CommitInput(BaseModel):
     project:str; name:str=Field(min_length=1,max_length=100); kind:str='collector'
     field_map:dict[str,str]={}; vertical_ref:str='Não informado'
 class TraceInput(BaseModel): selected:str; tolerance:float=Field(default=0.5,ge=0,le=20); scenario:bool=False
+class RouteInput(BaseModel):
+    start:str; end:str|None=None; tolerance:float=Field(default=0.5,ge=0,le=20)
 
 @app.get('/api/projects')
 def projects(): return {'projects':store.projects(),'storage':'PostGIS' if store.pg else 'SQLite + índice RTree'}
@@ -61,26 +66,28 @@ def project_create(body:ProjectInput): return {'id':store.create_project(body.na
 def layers(project:str):
     store.project(project); return store.layers(project)
 
-def filtered(project,q='',material='',diameter='',kind='',bbox=None):
-    data=store.features(project,bbox)
+def filtered(project,q='',material='',diameter='',kind='',bbox=None,compact=False):
+    data=store.routing_features(project) if compact and not q and bbox is None else store.features(project,bbox)
     def match(f):
         s=f['properties']['standard']
         return (not q or q.casefold() in json.dumps(f['properties'],ensure_ascii=False).casefold()) and (not material or str(s.get('material',''))==material) and (not diameter or str(s.get('diameter',''))==diameter) and (not kind or f['layer_kind']==kind)
     return [f for f in data if match(f)]
 
 @app.get('/api/projects/{project}/features')
-def features(project:str,q:str='',material:str='',diameter:str='',kind:str='',bbox:str=''):
+def features(project:str,q:str='',material:str='',diameter:str='',kind:str='',bbox:str='',compact:bool=False):
     store.project(project)
     bounds=None
     if bbox:
         try: bounds=list(map(float,bbox.split(','))); assert len(bounds)==4 and bounds[0]<=bounds[2] and bounds[1]<=bounds[3]
         except (ValueError,AssertionError): raise ValueError('bbox inválida: xmin,ymin,xmax,ymax.')
-    data=filtered(project,q,material,diameter,kind,bounds)
+    data=filtered(project,q,material,diameter,kind,bounds,compact)
+    if compact:
+        data=[{**{k:v for k,v in f.items() if k!='original_geometry'},'properties':{'standard':f['properties']['standard'],'original':None},'_compact':True} for f in data]
     return {'type':'FeatureCollection','features':data,'count':len(data)}
 
 @app.get('/api/projects/{project}/indicators')
 def indicators(project:str,q:str='',material:str='',diameter:str='',kind:str=''):
-    fs=filtered(project,q,material,diameter,kind)
+    fs=filtered(project,q,material,diameter,kind,compact=True)
     lines=[f for f in fs if 'LineString' in f['geometry']['type']]
     def group(key): return dict(Counter(str(f['properties']['standard'].get(key) if f['properties']['standard'].get(key) is not None else 'Não informado') for f in lines))
     return {'scope':'filtrado' if any((q,material,diameter,kind)) else 'toda a base','length_m':sum(f['properties']['standard'].get('length_m',0) for f in lines),
@@ -100,7 +107,7 @@ async def preview(file:UploadFile=File(...),source_crs:str=Form(''),layer:str=Fo
     return stage(fs,crs,warnings)
 
 def stage(fs,crs,warnings):
-    if not fs or len(fs)>100000: raise ValueError('A importação deve ter entre 1 e 100.000 feições.')
+    if not fs or len(fs)>MAX_FEATURES: raise ValueError(f'A importação deve ter entre 1 e {MAX_FEATURES:,} feições (MAX_FEATURES).')
     # Valida coordenadas antes de criar a prévia.
     normalize(fs,crs,{},'collector')
     import time
@@ -136,9 +143,19 @@ def arc_preview(alias:str):
     result['source_spatial_reference']=meta.get('extent',{}).get('spatialReference')
     return result
 @app.post('/api/projects/{project}/trace')
-def trace(project:str,body:TraceInput): return Topology(store.features(project),body.tolerance).trace(body.selected,body.scenario)
+def trace(project:str,body:TraceInput): return routing.graph(project,body.tolerance).trace(body.selected,body.scenario)
 @app.get('/api/projects/{project}/topology')
-def topology(project:str,tolerance:float=0.5): return Topology(store.features(project),tolerance).report()
+def topology(project:str,tolerance:float=0.5): return routing.graph(project,tolerance).report()
+
+@app.post('/api/projects/{project}/route')
+def route(project:str,body:RouteInput): return routing.route(project,body.start,body.end,body.tolerance)
+@app.get('/api/projects/{project}/route/choices')
+def route_choices(project:str,q:str='',tolerance:float=.5): return routing.choices(project,q,tolerance)
+@app.get('/api/projects/{project}/feature/{fid}')
+def feature_detail(project:str,fid:str):
+    data=store.features_by_ids(project,[fid])
+    if not data: raise ValueError('Elemento não encontrado neste projeto.')
+    return data[0]
 
 @app.get('/')
 def index(): return FileResponse(ROOT/'frontend/index.html')
